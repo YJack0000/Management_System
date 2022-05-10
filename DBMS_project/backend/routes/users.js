@@ -89,8 +89,9 @@ router.post("/getInformation", function (req, res, next) {
       } else {
         if (rows.length == 0) {
           res.status(409).json({ success: false, err: "使用者不存在" });
+        } else {
+          res.status(200).json({ success: true, userInformation: rows[0] });
         }
-        res.status(200).json({ success: true, userInformation: rows[0] });
       }
     }
   );
