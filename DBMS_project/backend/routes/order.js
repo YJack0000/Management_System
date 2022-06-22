@@ -7,7 +7,10 @@ const {
   checkUserId,
   checkProductId,
   checkTagId,
+  checkOrderId,
 } = require("../src/checkExisted");
+
+const { deleteOrder } = require("../src/modifyOrder");
 
 /* GET order listening. */
 router.get("/", function (req, res, next) {
@@ -164,6 +167,32 @@ router.post("/addNewOrder", async function (req, res, next) {
   }
 });
 
+router.post("/deleteOrder", async function (req, res, next) {
+  /*
+  #swagger.tags = ['Order']
+  #swagger.responses[409] = {
+    description: '使用者不存在或訂單不存在'
+  }
+  */
+  const mysqlPoolQuery = req.pool;
+  const userId = req.body.userId;
+  const orderId = req.body.orderId;
+  try {
+    const userExisted = await checkUserId(userId);
+    const orderExisted = await checkOrderId(orderId, userId);
+    if (!userExisted) {
+      res.status(409).json({ success: false, err: "使用者不存在" });
+    } else if (!orderExisted) {
+      res.status(409).json({ success: false, err: "訂單不存在" });
+    } else {
+      await deleteOrder(orderId, userId);
+      res.status(200).json({ success: true, message: "刪除訂單成功" });
+    }
+  } catch (err) {
+    res.status(404).json({ success: false, err: err });
+  }
+});
+
 router.post("/updateOrder", async function (req, res, next) {
   /*
   #swagger.tags = ['Order']
@@ -178,6 +207,7 @@ router.post("/updateOrder", async function (req, res, next) {
   const tagId = req.body.tagId;
   const orderId = req.body.orderId;
   let updateOrderSQL = {
+    order_id: orderId,
     create_time: new Date(),
     total_price: totalPrice,
     user_id: userId,
@@ -208,20 +238,25 @@ router.post("/updateOrder", async function (req, res, next) {
         if (!allTagsExisted) {
           res.status(409).json({ success: false, err: "標籤不存在" });
         } else {
-          await mysqlPoolQuery("UPDATE `order` SET ? WHERE order_id = ?", [
-            updateOrderSQL,
-            orderId,
-          ]);
+          // delete order and add new order
+          await deleteOrder(orderId, userId);
+          await mysqlPoolQuery("INSERT INTO `order` SET ?", updateOrderSQL);
           for (let i = 0; i < tagId.length; i++) {
-            await mysqlPoolQuery(
-              "UPDATE `order_tag` SET tag_id = ? WHERE order_id = ?",
-              [tagId[i], orderId]
-            );
+            let insertOTSQL = {
+              order_id: orderId,
+              tag_id: tagId[i],
+            };
+            await mysqlPoolQuery("INSERT INTO `order_tag` SET ?", insertOTSQL);
           }
           for ([productId, amount] of Object.entries(orderData)) {
+            let insertOPSQL = {
+              order_id: orderId,
+              product_id: productId,
+              amount: amount,
+            };
             await mysqlPoolQuery(
-              "UPDATE `order_product` SET amount = ? WHERE order_id = ? AND product_id = ?",
-              [amount, orderId, productId]
+              "INSERT INTO `order_product` SET ?",
+              insertOPSQL
             );
           }
           res.status(200).json({ success: true, message: "更新訂單成功" });
